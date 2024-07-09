@@ -1708,6 +1708,7 @@ module.exports = [
   },
   {
     name: 'AB Tasty',
+    homepage: 'https://www.abtasty.com/',
     category: 'analytics',
     domains: ['*.abtasty.com', 'd1447tq2m68ekg.cloudfront.net'],
   },
@@ -5842,8 +5843,9 @@ module.exports = [
   },
   {
     name: 'Kameleoon',
+    homepage: 'https://www.kameleoon.com/',
     category: 'analytics',
-    domains: ['*.kameleoon.com', '*.kameleoon.eu'],
+    domains: ['*.kameleoon.com', '*.kameleoon.eu', '*.kameleoon.io'],
   },
   {
     name: 'Kampyle',
