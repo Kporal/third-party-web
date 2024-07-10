@@ -5846,6 +5846,7 @@ module.exports = [
     homepage: 'https://www.kameleoon.com/',
     category: 'analytics',
     domains: ['*.kameleoon.com', '*.kameleoon.eu', '*.kameleoon.io'],
+    examples: ['data.kameleoon.io', 'kdm3fpv6il.kameleoon.eu'],
   },
   {
     name: 'Kampyle',
