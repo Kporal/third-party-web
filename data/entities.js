@@ -1711,6 +1711,7 @@ module.exports = [
     homepage: 'https://www.abtasty.com/',
     category: 'analytics',
     domains: ['*.abtasty.com', 'd1447tq2m68ekg.cloudfront.net'],
+    examples: [ "try.abtasty.com"]
   },
   {
     name: 'ABA RESEARCH',
