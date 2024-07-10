@@ -14,7 +14,5 @@ FROM (
 )
 GROUP BY
   domain
-HAVING
-  totalOccurrences >= 50
 ORDER BY
   totalOccurrences DESC
