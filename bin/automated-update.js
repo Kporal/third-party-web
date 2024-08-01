@@ -37,43 +37,52 @@ function getQueryForTable(filename, dateUnderscore) {
 }
 
 async function withExistenceCheck(name, {checkExistenceFn, actionFn, deleteFn, exitFn}) {
-  const alreadyExists = await checkExistenceFn()
-  if (alreadyExists) {
-    const response = await prompts({
-      type: 'toggle',
-      name: 'value',
-      initial: false,
-      message: `${name} already exists. Do you want to overwrite?`,
-      active: 'yes',
-      inactive: 'no',
-    })
-
-    if (!response.value) return exitFn()
+  if (process.env.OVERWRITE_DATA) {
     await deleteFn()
+  } else {
+    const alreadyExists = await checkExistenceFn()
+    if (alreadyExists) {
+      const response = await prompts({
+        type: 'toggle',
+        name: 'value',
+        initial: false,
+        message: `${name} already exists. Do you want to overwrite?`,
+        active: 'yes',
+        inactive: 'no',
+      })
+
+      if (!response.value) return exitFn()
+      await deleteFn()
+    }
   }
 
   await actionFn()
 }
 
 async function getTargetDatasetDate() {
-  const msInDay = 24 * 60 * 60 * 1000
-  const daysIntoCurrentMonth = new Date().getDate()
-  const timeSinceLastMonthInMs = daysIntoCurrentMonth * msInDay
-  const lastMonthDate = new Date(Date.now() - (timeSinceLastMonthInMs + msInDay))
-  const lastMonthPadded = (lastMonthDate.getMonth() + 1).toString().padStart(2, '0')
-  const currentMonthDate = new Date(Date.now())
-  const currentMonthPadded = (currentMonthDate.getMonth() + 1).toString().padStart(2, '0')
+  let dateStringUnderscore = process.env.ARCHIVE_DATE
+  if (!dateStringUnderscore) {
+    const msInDay = 24 * 60 * 60 * 1000
+    const daysIntoCurrentMonth = new Date().getDate()
+    const timeSinceLastMonthInMs = daysIntoCurrentMonth * msInDay
+    const lastMonthDate = new Date(Date.now() - (timeSinceLastMonthInMs + msInDay))
+    const lastMonthPadded = (lastMonthDate.getMonth() + 1).toString().padStart(2, '0')
+    const currentMonthDate = new Date(Date.now())
+    const currentMonthPadded = (currentMonthDate.getMonth() + 1).toString().padStart(2, '0')
 
-  const predictedDate =
-    daysIntoCurrentMonth < 10
-      ? `${lastMonthDate.getFullYear()}_${lastMonthPadded}_01`
-      : `${currentMonthDate.getFullYear()}_${currentMonthPadded}_01`
-  const {value: dateStringUnderscore} = await prompts({
-    type: 'text',
-    name: 'value',
-    initial: predictedDate,
-    message: `Which HTTPArchive table do you want to use?`,
-  })
+    const predictedDate =
+      daysIntoCurrentMonth < 10
+        ? `${lastMonthDate.getFullYear()}_${lastMonthPadded}_01`
+        : `${currentMonthDate.getFullYear()}_${currentMonthPadded}_01`
+    const {value} = await prompts({
+      type: 'text',
+      name: 'value',
+      initial: predictedDate,
+      message: `Which HTTPArchive table do you want to use?`,
+    })
+    dateStringUnderscore = value
+  }
+
   const dateStringHypens = dateStringUnderscore.replace(/_/g, '-')
   console.log('Determined', dateStringUnderscore, 'data is needed')
 
