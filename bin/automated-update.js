@@ -26,6 +26,12 @@ const TABLE_REPLACEMENTS = process.env.USE_SAMPLE_DATA
       [process.env.OVERRIDE_LH_PROJECT, LH_REGEX],
     ].filter(([override]) => override)
 
+const ABT_STEP = process.env.ABT_STEP
+const abtFirstStep = ABT_STEP === '1'
+const abtSecondStep = ABT_STEP === '2'
+const runFirstStep = !ABT_STEP || abtFirstStep
+const runSecondStep = !ABT_STEP || abtSecondStep
+
 function getQueryForTable(filename, dateUnderscore) {
   const text = fs.readFileSync(filename, 'utf-8')
   let query = text.replace(DATE_UNDERSCORE_REGEX, dateUnderscore)
@@ -130,6 +136,7 @@ async function main() {
   const entityScriptingFilename = `${__dirname}/../data/${dateStringHypens}-entity-scripting.json`
   const allObservedDomainsFilename = `${__dirname}/../sql/all-observed-domains-query.sql`
   const entityPerPageFilename = `${__dirname}/../sql/entity-per-page.sql`
+  const thirdPartyWebFilename = `${__dirname}/../data/${dateStringHypens}-third-party-web.json`
 
   // Check if we should overwrite anything.
   await withExistenceCheck(`Data for ${dateStringUnderscore}`, {
@@ -146,6 +153,8 @@ async function main() {
   await withExistenceCheck(observedDomainsFilename, {
     checkExistenceFn: () => fs.existsSync(observedDomainsFilename),
     actionFn: async () => {
+      if (!runFirstStep) return
+
       console.log(`Start observed domains query`)
 
       const start = Date.now()
@@ -161,27 +170,43 @@ async function main() {
         // write to observed-domains json file
         .pipe(observedDomainsFileWriterStream)
 
-      // Observed domain entity mapping table pipe
-      const thirdPartyWebTableWriterStream = new BigQuery()
-        .dataset('third_party_web')
-        .table(dateStringUnderscore)
-        .createWriteStream({
-          schema: [
-            {name: 'domain', type: 'STRING'},
-            {name: 'canonicalDomain', type: 'STRING'},
-            {name: 'category', type: 'STRING'},
-          ],
-        })
-      resultsStream
-        // map observed domain to entity
-        .pipe(EntityCanonicalDomainTransformer)
-        // stringify json
-        .pipe(getJSONStringTransformer())
-        // write to thrid_party_web table
-        .pipe(thirdPartyWebTableWriterStream)
+      let thirdPartyWebWriterStream
+      if (abtFirstStep) {
+        console.log('Run only first step')
+        let thirdPartyWebNbRows = 0
+        thirdPartyWebWriterStream = fs.createWriteStream(thirdPartyWebFilename)
+        resultsStream
+          // map observed domain to entity
+          .pipe(EntityCanonicalDomainTransformer)
+          // stringify json
+          .pipe(getJSONStringTransformer(thirdPartyWebNbRows))
+          // write to thrid_party_web json file
+          .pipe(thirdPartyWebWriterStream)
+      } else {
+        // Observed domain entity mapping table pipe
+        const thirdPartyWebTableWriterStream = new BigQuery()
+          .dataset('third_party_web')
+          .table(dateStringUnderscore)
+          .createWriteStream({
+            schema: [
+              {name: 'domain', type: 'STRING'},
+              {name: 'canonicalDomain', type: 'STRING'},
+              {name: 'category', type: 'STRING'},
+            ],
+          })
+        thirdPartyWebWriterStream = thirdPartyWebTableWriterStream
+
+        resultsStream
+          // map observed domain to entity
+          .pipe(EntityCanonicalDomainTransformer)
+          // stringify json
+          .pipe(getJSONStringTransformer())
+          // write to thrid_party_web table
+          .pipe(thirdPartyWebTableWriterStream)
+      }
 
       // Wait both streams to finish
-      await resolveOnFinished([observedDomainsFileWriterStream, thirdPartyWebTableWriterStream])
+      await resolveOnFinished([observedDomainsFileWriterStream, thirdPartyWebWriterStream])
 
       // Close observed domains json array in file
       fs.appendFileSync(observedDomainsFilename, '\n]')
@@ -189,6 +214,10 @@ async function main() {
       console.log(
         `Finish query in ${(Date.now() - start) / 1000}s. Wrote ${observedDomainsNbRows} rows.`
       )
+      if (abtFirstStep) {
+        fs.appendFileSync(thirdPartyWebFilename, ']')
+        process.exit(0)
+      }
     },
     deleteFn: async () => {
       const bqClient = new BigQuery()
@@ -205,6 +234,7 @@ async function main() {
   await withExistenceCheck(entityScriptingFilename, {
     checkExistenceFn: () => fs.existsSync(entityScriptingFilename),
     actionFn: async () => {
+      if (!runSecondStep) return
       console.log(`Start entity scripting query`)
 
       const start = Date.now()
