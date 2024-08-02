@@ -179,7 +179,14 @@ async function main() {
           // map observed domain to entity
           .pipe(EntityCanonicalDomainTransformer)
           // stringify json
-          .pipe(getJSONStringTransformer(thirdPartyWebNbRows))
+          .pipe(
+            new Transform({
+              objectMode: true,
+              transform(row, _, callback) {
+                callback(null, JSON.stringify(row) + '\n')
+              },
+            })
+          )
           // write to thrid_party_web json file
           .pipe(thirdPartyWebWriterStream)
       } else {
@@ -214,10 +221,7 @@ async function main() {
       console.log(
         `Finish query in ${(Date.now() - start) / 1000}s. Wrote ${observedDomainsNbRows} rows.`
       )
-      if (abtFirstStep) {
-        fs.appendFileSync(thirdPartyWebFilename, ']')
-        process.exit(0)
-      }
+      abtFirstStep && process.exit(0)
     },
     deleteFn: async () => {
       const bqClient = new BigQuery()
