@@ -5,7 +5,7 @@ const util = require('util')
 const {Transform, finished} = require('stream')
 const {BigQuery} = require('@google-cloud/bigquery')
 
-const {getEntity} = require('../lib/')
+const {getEntity, entities} = require('../lib/')
 
 const HA_REQUESTS_TABLE_REGEX = /`httparchive\.requests\.\w+`/g
 const HA_LH_TABLE_REGEX = /`httparchive\.lighthouse\.\w+`/g
@@ -80,11 +80,12 @@ async function getTargetDatasetDate() {
   return {dateStringUnderscore, dateStringHypens}
 }
 
-const getQueryResultStream = async query => {
+const getQueryResultStream = async (query, params) => {
   const [job] = await new BigQuery().createQueryJob({
     query,
     location: 'US',
     useQueryCache: false,
+    params,
   })
   return job.getQueryResultsStream()
 }
@@ -141,7 +142,13 @@ async function main() {
 
       const start = Date.now()
 
-      const resultsStream = await getQueryResultStream(allObservedDomainsQuery)
+      const domainEntityMapping = entities.reduce((array, {name, domains}) => {
+        return array.concat(domains.map(domain => ({name, domain})))
+      }, [])
+
+      const resultsStream = await getQueryResultStream(allObservedDomainsQuery, {
+        entities_string: JSON.stringify(domainEntityMapping),
+      })
 
       // Observed domain json file pipe
       let observedDomainsNbRows = 0
