@@ -120,6 +120,7 @@ async function main() {
 
   const observedDomainsFilename = `${__dirname}/../data/${dateStringHypens}-observed-domains.json`
   const entityScriptingFilename = `${__dirname}/../data/${dateStringHypens}-entity-scripting.json`
+  const mostObservedDomainsFilename = `${__dirname}/../sql/most-observed-domains-query.sql`
   const allObservedDomainsFilename = `${__dirname}/../sql/all-observed-domains-query.sql`
   const entityPerPageFilename = `${__dirname}/../sql/entity-per-page.sql`
 
@@ -131,6 +132,10 @@ async function main() {
     exitFn: () => process.exit(1),
   })
 
+  const mostObservedDomainsQuery = getQueryForTable(
+    mostObservedDomainsFilename,
+    dateStringUnderscore
+  )
   const allObservedDomainsQuery = getQueryForTable(allObservedDomainsFilename, dateStringUnderscore)
   const entityPerPageQuery = getQueryForTable(entityPerPageFilename, dateStringUnderscore)
 
@@ -142,24 +147,21 @@ async function main() {
 
       const start = Date.now()
 
+      //1. Get and write in 'observed-domains' json file domains observed more than 50 times
+      let observedDomainsNbRows = 0
+      const observedDomainsFileWriterStream = fs.createWriteStream(observedDomainsFilename)
+      await getQueryResultStream(mostObservedDomainsQuery).then(stream => {
+        stream
+          // stringify observed domain json (with json array prefix based on row index)
+          .pipe(getJSONStringTransformer(observedDomainsNbRows))
+          // write to observed-domains json file
+          .pipe(observedDomainsFileWriterStream)
+      })
+
+      //2. Get and write in 'third_party_web' table all observed domains mapped to entity observed at least 50 times
       const domainEntityMapping = entities.reduce((array, {name, domains}) => {
         return array.concat(domains.map(domain => ({name, domain})))
       }, [])
-
-      const resultsStream = await getQueryResultStream(allObservedDomainsQuery, {
-        entities_string: JSON.stringify(domainEntityMapping),
-      })
-
-      // Observed domain json file pipe
-      let observedDomainsNbRows = 0
-      const observedDomainsFileWriterStream = fs.createWriteStream(observedDomainsFilename)
-      resultsStream
-        // stringify observed domain json (with json array prefix based on row index)
-        .pipe(getJSONStringTransformer(observedDomainsNbRows))
-        // write to observed-domains json file
-        .pipe(observedDomainsFileWriterStream)
-
-      // Observed domain entity mapping table pipe
       const thirdPartyWebTableWriterStream = new BigQuery()
         .dataset('third_party_web')
         .table(dateStringUnderscore)
@@ -170,13 +172,18 @@ async function main() {
             {name: 'category', type: 'STRING'},
           ],
         })
-      resultsStream
-        // map observed domain to entity
-        .pipe(EntityCanonicalDomainTransformer)
-        // stringify json
-        .pipe(getJSONStringTransformer())
-        // write to thrid_party_web table
-        .pipe(thirdPartyWebTableWriterStream)
+
+      await getQueryResultStream(allObservedDomainsQuery, {
+        entities_string: JSON.stringify(domainEntityMapping),
+      }).then(stream => {
+        stream
+          // map observed domain to entity
+          .pipe(EntityCanonicalDomainTransformer)
+          // stringify json
+          .pipe(getJSONStringTransformer())
+          // write to thrid_party_web table
+          .pipe(thirdPartyWebTableWriterStream)
+      })
 
       // Wait both streams to finish
       await resolveOnFinished([observedDomainsFileWriterStream, thirdPartyWebTableWriterStream])
