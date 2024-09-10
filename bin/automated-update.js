@@ -124,7 +124,7 @@ const getThirdPartyWebTable = async tableName => {
     projectId: process.env.OVERRIDE_LH_PROJECT,
   })
   const thirdPartyWebTable = thirdPartyWebDataset.table(tableName)
-  const thirdPartyWebTableExits = await thirdPartyWebTable.exists()
+  const [thirdPartyWebTableExits] = await thirdPartyWebTable.exists()
   if (thirdPartyWebTableExits) return thirdPartyWebTable
   const [table] = await thirdPartyWebDataset.createTable(tableName, {
     schema: [
