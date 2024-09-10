@@ -7,6 +7,8 @@ const {BigQuery} = require('@google-cloud/bigquery')
 
 const {getEntity, entities} = require('../lib/')
 
+const bigQuery = new BigQuery()
+
 const HA_REQUESTS_TABLE_REGEX = /`httparchive\.requests\.\w+`/g
 const HA_LH_TABLE_REGEX = /`httparchive\.lighthouse\.\w+`/g
 const LH_3P_TABLE_REGEX = /`lighthouse-infrastructure\.third_party_web\.\w+`/g
@@ -81,7 +83,7 @@ async function getTargetDatasetDate() {
 }
 
 const getQueryResultStream = async (query, params) => {
-  const [job] = await new BigQuery().createQueryJob({
+  const [job] = await bigQuery.createQueryJob({
     query,
     location: 'US',
     useQueryCache: false,
@@ -97,8 +99,10 @@ const getJSONStringTransformer = rowCounter => {
   return new Transform({
     objectMode: true,
     transform(row, _, callback) {
-      const prefix = rowCounter === undefined ? '' : !rowCounter++ ? '[\n' : ',\n'
-      callback(null, prefix + JSON.stringify(row))
+      const toJSONArrayString = rowCounter !== undefined
+      const prefix = toJSONArrayString ? (!rowCounter++ ? '[\n' : ',\n') : ''
+      const suffix = toJSONArrayString ? '' : '\n'
+      callback(null, prefix + JSON.stringify(row) + suffix)
     },
   })
 }
@@ -114,6 +118,23 @@ const EntityCanonicalDomainTransformer = new Transform({
     callback(null, thirdPartyWebRow)
   },
 })
+
+const getThirdPartyWebTable = async tableName => {
+  const thirdPartyWebDataset = bigQuery.dataset('third_party_web', {
+    projectId: process.env.OVERRIDE_LH_PROJECT,
+  })
+  const thirdPartyWebTable = thirdPartyWebDataset.table(tableName)
+  const thirdPartyWebTableExits = await thirdPartyWebTable.exists()
+  if (thirdPartyWebTableExits) return thirdPartyWebTable
+  const [table] = await thirdPartyWebDataset.createTable(tableName, {
+    schema: [
+      {name: 'domain', type: 'STRING'},
+      {name: 'canonicalDomain', type: 'STRING'},
+      {name: 'category', type: 'STRING'},
+    ],
+  })
+  return table
+}
 
 async function main() {
   const {dateStringUnderscore, dateStringHypens} = await getTargetDatasetDate()
@@ -162,16 +183,12 @@ async function main() {
       const domainEntityMapping = entities.reduce((array, {name, domains}) => {
         return array.concat(domains.map(domain => ({name, domain})))
       }, [])
-      const thirdPartyWebTableWriterStream = new BigQuery()
-        .dataset('third_party_web')
-        .table(dateStringUnderscore)
-        .createWriteStream({
-          schema: [
-            {name: 'domain', type: 'STRING'},
-            {name: 'canonicalDomain', type: 'STRING'},
-            {name: 'category', type: 'STRING'},
-          ],
-        })
+      const thirdPartyWebTableWriterStream = await getThirdPartyWebTable(dateStringUnderscore).then(
+        table =>
+          table.createWriteStream({
+            sourceFormat: 'NEWLINE_DELIMITED_JSON',
+          })
+      )
 
       await getQueryResultStream(allObservedDomainsQuery, {
         entities_string: JSON.stringify(domainEntityMapping),
@@ -179,7 +196,7 @@ async function main() {
         stream
           // map observed domain to entity
           .pipe(EntityCanonicalDomainTransformer)
-          // stringify json
+          // stringify json with new line delimiter
           .pipe(getJSONStringTransformer())
           // write to thrid_party_web table
           .pipe(thirdPartyWebTableWriterStream)
@@ -196,8 +213,7 @@ async function main() {
       )
     },
     deleteFn: async () => {
-      const bqClient = new BigQuery()
-      await bqClient
+      await bigQuery
         .dataset('third_party_web')
         .table(dateStringUnderscore)
         .delete()
